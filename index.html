@@ -1,0 +1,281 @@
+import React, { useState } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+
+const NutritionCalculator = () => {
+  const [formData, setFormData] = useState({
+    username: '',
+    gender: 'male',
+    age: '',
+    weight: '',
+    height: '',
+    activityLevel: 'sedentary'
+  });
+  
+  const [showResults, setShowResults] = useState(false);
+  const [results, setResults] = useState(null);
+
+  // คำนวณ BMR (Basal Metabolic Rate) ด้วยสูตร Harris-Benedict
+  const calculateBMR = () => {
+    const { gender, age, weight, height } = formData;
+    if (gender === 'male') {
+      return 66.47 + (13.75 * weight) + (5.003 * height) - (6.755 * age);
+    }
+    return 655.1 + (9.563 * weight) + (1.850 * height) - (4.676 * age);
+  };
+
+  // ตัวคูณสำหรับระดับกิจกรรม
+  const activityMultipliers = {
+    sedentary: 1.2,
+    lightlyActive: 1.375,
+    moderatelyActive: 1.55,
+    veryActive: 1.725,
+    extraActive: 1.9
+  };
+
+  // คำนวณ BMI
+  const calculateBMI = () => {
+    const { weight, height } = formData;
+    const heightInMeters = height / 100;
+    return (weight / (heightInMeters * heightInMeters)).toFixed(1);
+  };
+
+  // แปลงผล BMI
+  const getBMICategory = (bmi) => {
+    if (bmi < 18.5) return 'น้ำหนักต่ำกว่าเกณฑ์';
+    if (bmi < 23) return 'สมส่วน';
+    if (bmi < 25) return 'น้ำหนักเกิน';
+    if (bmi < 30) return 'อ้วน';
+    return 'อ้วนมาก';
+  };
+
+  // สร้างคำแนะนำอาหาร
+  const getFoodRecommendations = (carbsGrams) => {
+    const carbUnits = Math.round(carbsGrams / 15);
+    const mealsDistribution = {
+      breakfast: Math.round(carbUnits * 0.3),
+      lunch: Math.round(carbUnits * 0.4),
+      dinner: Math.round(carbUnits * 0.3)
+    };
+
+    const foodExamples = {
+      breakfast: [
+        `ข้าวสวย ${mealsDistribution.breakfast} ทัพพี`,
+        `ขนมปัง ${Math.round(mealsDistribution.breakfast * 1.5)} แผ่น`,
+        `โจ๊ก ${mealsDistribution.breakfast} ถ้วย`
+      ],
+      lunch: [
+        `ข้าวสวย ${mealsDistribution.lunch} ทัพพี`,
+        `ก๋วยเตี๋ยว ${mealsDistribution.lunch} ถ้วย`,
+        `ข้าวต้ม ${mealsDistribution.lunch} ถ้วย`
+      ],
+      dinner: [
+        `ข้าวสวย ${mealsDistribution.dinner} ทัพพี`,
+        `ข้าวกล้อง ${mealsDistribution.dinner} ทัพพี`,
+        `สปาเก็ตตี้ ${mealsDistribution.dinner} จาน`
+      ]
+    };
+
+    return { mealsDistribution, foodExamples };
+  };
+
+  // ส่งข้อมูลไปยัง Google Sheets
+  const sendToGoogleSheets = async (data) => {
+    try {
+      const response = await fetch('https://script.google.com/macros/s/AKfycbwRbd7SpE-nThQpk-dkRzAGxIVLS8AY9X6r1jJ7JZUzq3eQTfoHfZh4kloTyD8jpUBU/exec', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to send data');
+      }
+    } catch (error) {
+      console.error('Error sending data:', error);
+    }
+  };
+
+  const calculateNutrition = async (e) => {
+    e.preventDefault();
+    const bmr = calculateBMR();
+    const tdee = bmr * activityMultipliers[formData.activityLevel];
+    const bmi = calculateBMI();
+    const bmiCategory = getBMICategory(bmi);
+    
+    const protein = (formData.weight * 2.2) * 1;
+    const fat = (tdee * 0.25) / 9;
+    const carbs = (tdee - (protein * 4) - (fat * 9)) / 4;
+    
+    const { mealsDistribution, foodExamples } = getFoodRecommendations(carbs);
+
+    const calculatedResults = {
+      username: formData.username,
+      bmr: Math.round(bmr),
+      tdee: Math.round(tdee),
+      bmi: bmi,
+      bmiCategory: bmiCategory,
+      protein: Math.round(protein),
+      fat: Math.round(fat),
+      carbs: Math.round(carbs),
+      carbUnits: Math.round(carbs / 15),
+      mealsDistribution,
+      foodExamples
+    };
+
+    // ส่งข้อมูลไป Google Sheets
+    await sendToGoogleSheets(calculatedResults);
+    
+    setResults(calculatedResults);
+    setShowResults(true);
+  };
+
+  return (
+    <div className="max-w-2xl mx-auto p-4 font-prompt">
+      <Card>
+        <CardHeader className="text-center">
+          <CardTitle className="text-2xl font-prompt">คนโนนสะอาดนับคาร์บ</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={calculateNutrition} className="space-y-4">
+            <div className="space-y-2 text-left">
+              <Label>ชื่อผู้ใช้</Label>
+              <Input
+                name="username"
+                value={formData.username}
+                onChange={(e) => setFormData({...formData, username: e.target.value})}
+                required
+              />
+            </div>
+
+            <div className="space-y-2 text-left">
+              <Label>เพศ</Label>
+              <select
+                name="gender"
+                value={formData.gender}
+                onChange={(e) => setFormData({...formData, gender: e.target.value})}
+                className="w-full p-2 border rounded font-prompt"
+              >
+                <option value="male">ชาย</option>
+                <option value="female">หญิง</option>
+              </select>
+            </div>
+
+            <div className="space-y-2 text-left">
+              <Label>อายุ (ปี)</Label>
+              <Input
+                type="number"
+                name="age"
+                value={formData.age}
+                onChange={(e) => setFormData({...formData, age: e.target.value})}
+                min="0"
+                required
+              />
+            </div>
+
+            <div className="space-y-2 text-left">
+              <Label>น้ำหนัก (กก.)</Label>
+              <Input
+                type="number"
+                name="weight"
+                value={formData.weight}
+                onChange={(e) => setFormData({...formData, weight: e.target.value})}
+                min="0"
+                required
+              />
+            </div>
+
+            <div className="space-y-2 text-left">
+              <Label>ส่วนสูง (ซม.)</Label>
+              <Input
+                type="number"
+                name="height"
+                value={formData.height}
+                onChange={(e) => setFormData({...formData, height: e.target.value})}
+                min="0"
+                required
+              />
+            </div>
+
+            <div className="space-y-2 text-left">
+              <Label>ระดับกิจกรรม</Label>
+              <select
+                name="activityLevel"
+                value={formData.activityLevel}
+                onChange={(e) => setFormData({...formData, activityLevel: e.target.value})}
+                className="w-full p-2 border rounded font-prompt"
+              >
+                <option value="sedentary">นั่งทำงานเป็นส่วนใหญ่</option>
+                <option value="lightlyActive">ออกกำลังกายเบา 1-3 วัน/สัปดาห์</option>
+                <option value="moderatelyActive">ออกกำลังกายปานกลาง 3-5 วัน/สัปดาห์</option>
+                <option value="veryActive">ออกกำลังกายหนัก 6-7 วัน/สัปดาห์</option>
+                <option value="extraActive">ออกกำลังกายหนักมากหรือทำงานใช้แรงงาน</option>
+              </select>
+            </div>
+
+            <Button type="submit" className="w-full">คำนวณ</Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      <AlertDialog open={showResults} onOpenChange={setShowResults}>
+        <AlertDialogContent className="max-w-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-lg font-prompt text-center">
+              ผลการคำนวณของคุณ {results?.username}
+            </AlertDialogTitle>
+          </AlertDialogHeader>
+          <div className="space-y-4 font-prompt">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="p-4 bg-blue-50 rounded">
+                <p><strong>BMI:</strong> {results?.bmi} ({results?.bmiCategory})</p>
+              </div>
+              <div className="p-4 bg-green-50 rounded">
+                <p><strong>พลังงานที่ต้องการ:</strong> {results?.tdee} แคลอรี่/วัน</p>
+              </div>
+              <div className="p-4 bg-yellow-50 rounded">
+                <p><strong>โปรตีน:</strong> {results?.protein} กรัม/วัน</p>
+              </div>
+              <div className="p-4 bg-red-50 rounded">
+                <p><strong>ไขมัน:</strong> {results?.fat} กรัม/วัน</p>
+              </div>
+              <div className="p-4 bg-purple-50 rounded col-span-2">
+                <p><strong>คาร์โบไฮเดรต:</strong> {results?.carbs} กรัม/วัน ({results?.carbUnits} คาร์บ/วัน)</p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="font-bold">คำแนะนำการกินในแต่ละมื้อ:</h3>
+              {results && (
+                <>
+                  <p><strong>เช้า ({results.mealsDistribution.breakfast} คาร์บ):</strong><br/>
+                     {results.foodExamples.breakfast.join(' หรือ ')}</p>
+                  <p><strong>กลางวัน ({results.mealsDistribution.lunch} คาร์บ):</strong><br/>
+                     {results.foodExamples.lunch.join(' หรือ ')}</p>
+                  <p><strong>เย็น ({results.mealsDistribution.dinner} คาร์บ):</strong><br/>
+                     {results.foodExamples.dinner.join(' หรือ ')}</p>
+                </>
+              )}
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <Button onClick={() => setShowResults(false)}>ปิด</Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+};
+
+export default NutritionCalculator;
